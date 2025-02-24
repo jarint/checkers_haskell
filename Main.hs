@@ -18,6 +18,9 @@ import System.IO
 import Text.Read
 --------------------------------------------------------------------------------------
 
+-- sample run: ghc -o checkers_exec Main.hs
+
+
 main :: IO ()
 main = do -- the Human on Human game configuration
      hSetBuffering stdin LineBuffering

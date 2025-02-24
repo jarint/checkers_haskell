@@ -6,7 +6,7 @@ import Data.Maybe
 --  The board is 0-indexed, where (_,0) is the top row of the board, and (0,_) is
 --  the leftmost column.
 
-type Coord = (Int,Int)
+type Coord = (Int,Int) -- (x,y) coordinate of piece on the board
 type PieceState = [Coord]
 
 --  A move is a list of coordinates, tracing the path travelled by a piece, 
@@ -18,6 +18,11 @@ data PorK a = P a | K a
   deriving (Show,Eq, Read)
 
 type Move = [PorK Coord]
+
+-- [P (x, y), P (x', y')] ==> a pawn has moved from (x, y) to (x', y')
+-- [P (x, y), K (x', y')] ==> a pawn has moved from (x, y) to (x', y') where x',y' is the edge of the board so it is a king
+-- the pawn turns into a king
+-- [P (x, y), P (x', y'), K(x'', y'')] ==> a pawn jumps two pieces to become a king on the back rank
 
 -- Simple moves or jumpmoves
 data SMorJM a = SM a |JM a | EndM
