@@ -36,3 +36,32 @@ moves game = EndM
     -- in the game or not.
 
 
+-- HANDLING REPEATED STATES
+
+-- Suppose some moveseet [K (xx, yy)] --- -- - -- - repeated moveset that causes a repeated state
+-- [K(0,1) K(1, 0)] ends up being illegal because it repeats a state
+
+-- 1. []
+-- 2. [K (0,1), K (1,0)]
+-- 3. [K (0,1), K (1,0), K (2,1)]
+-- 4. [K (0,1), K (1,0), K (2,1), K(1,2)]
+-- 5. [K (0,1), K (2,1), K(1,2)]
+-- 6. [K (2,1), K(1,2)]
+-- 7. [K (2,1)]
+-- 8. []
+
+
+
+
+-- take a list, which is initially empty
+-- list = []
+-- add the new move to that list
+-- traverse the history from left to right
+-- for each move in the history:
+    -- if one of the coordinates of the move is currently in the list,
+        -- remove it from the list
+    -- if not in the list
+        -- add it to the list
+-- if you end up with an empty list, then it means that you have a repeated state
+    -- and the move should be illegal
+--otherwise the move is legal
