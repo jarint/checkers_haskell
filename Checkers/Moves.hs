@@ -3,8 +3,11 @@ module Checkers.Moves where
 import Checkers.Types
 
 -- Implement your code for moves function below
-moves:: GameState -> (SMorJM [Move])
-moves game = EndM
+--moves:: GameState -> (SMorJM [Move])
+--moves game = EndM
+
+
+-- Notes from T02 with Melika
 
 -- returns all available valid moves based on the current state of the game
 -- list all the simple and jump moves available for pawns and kings
@@ -51,8 +54,6 @@ moves game = EndM
 -- 8. []
 
 
-
-
 -- take a list, which is initially empty
 -- list = []
 -- add the new move to that list
@@ -65,3 +66,161 @@ moves game = EndM
 -- if you end up with an empty list, then it means that you have a repeated state
     -- and the move should be illegal
 --otherwise the move is legal
+
+-- Utilities
+jump_over :: [Move] -> [Move]
+jump_over [] = [[]]
+jump_over z = z
+
+filterLongestMoves :: [Move] -> [Move]
+filterLongestMoves moves
+    | null moves = []
+    | otherwise = let maxLength = maximum (map length moves)
+                  in filter ((== maxLength) . length) moves
+
+isInBoard :: Coord -> Bool
+isInBoard (x, y) = x >= 0 && x < 8 && y >= 0 && y < 8
+
+isOccupied :: Coord -> GameState -> Bool
+isOccupied c st = c `elem` (blackPieces st ++ redPieces st ++ blackKings st ++ redKings st)
+
+isOpponentSquare :: Coord -> GameState -> Bool
+isOpponentSquare c st = case status st of
+    RedPlayer -> c `elem` (blackPieces st ++ blackKings st)
+    BlackPlayer -> c `elem` (redPieces st ++ redKings st)
+    _ -> False
+
+-- repeated states
+updateMoveHistory :: [Coord] -> [Coord]
+updateMoveHistory [] = []
+updateMoveHistory (x:xs)
+    | x `elem` xs = updateMoveHistory (filter (/= x) xs)
+    | otherwise = x : updateMoveHistory xs
+
+detectRepeatedState :: Move -> [Move] -> Bool
+detectRepeatedState mv historyMoves =
+    let updateList [] coord = [coord]
+        updateList lst coord = if coord `elem` lst then filter (/= coord) lst else coord : lst
+        finalList = foldl (\lst move -> foldl updateList lst [coord | K coord <- move]) [coord | K coord <- mv] historyMoves
+    in null finalList
+
+-- Move Generation
+moves :: GameState -> (SMorJM [Move])
+moves st
+    | not (null jumpmoves) = JM jumpmoves
+    | not (null simplemoves) = SM simplemoves
+    | otherwise = EndM
+  where
+    jumpmoves = jump_moves st
+    simplemoves = filter (not . (`detectRepeatedState` history st)) (simple_moves st)
+
+simple_moves :: GameState -> [Move]
+simple_moves st
+    | status st == RedPlayer = simpleKing (redKings st) st ++ simplePiece (redPieces st) 1 st
+    | status st == BlackPlayer = simpleKing (blackKings st) st ++ simplePiece (blackPieces st) (-1) st
+    | otherwise = []
+
+simplePiece :: [Coord] -> Int -> GameState -> [Move]
+simplePiece xs dir st =
+    [ [P (x, y), P (nx, ny)]
+    | (x, y) <- xs
+    , (nx, ny) <- [(x + 1, y + dir), (x - 1, y + dir)]
+    , isInBoard (nx, ny) && not (isOccupied (nx, ny) st)]
+
+simpleKing :: [Coord] -> GameState -> [Move]
+simpleKing xs st =
+    [ [K (x, y), K (nx, ny)]
+    | (x, y) <- xs
+    , (nx, ny) <- [(x + 1, y + 1), (x - 1, y + 1), (x + 1, y - 1), (x - 1, y - 1)]
+    , isInBoard (nx, ny) && not (isOccupied (nx, ny) st)]
+
+jump_moves :: GameState -> [Move]
+jump_moves st
+    | status st == RedPlayer =
+        let kingJumps = jumpKing (redKings st) st
+            pawnJumps = jumpPawn (redPieces st) st
+        in filterLongestMoves (kingJumps ++ pawnJumps)
+    | status st == BlackPlayer =
+        let kingJumps = jumpKing (blackKings st) st
+            pawnJumps = jumpPawn (blackPieces st) st
+        in filterLongestMoves (kingJumps ++ pawnJumps)
+    | otherwise = []
+
+jumpKing :: [Coord] -> GameState -> [Move]
+jumpKing xs st = [[K (x, y)] ++ ys | (x, y) <- xs, ys <- jumpKingHelper (x, y) [] (x, y) st]
+
+jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+jumpKingHelper start rem (x, y) st =
+    [ [K (x'', y'')] ++ ys
+    | ((x', y'), (x'', y'')) <- [((x + 1, y + 1), (x + 2, y + 2)), 
+                                 ((x - 1, y + 1), (x - 2, y + 2)), 
+                                 ((x + 1, y - 1), (x + 2, y - 2)), 
+                                 ((x - 1, y - 1), (x - 2, y - 2))]
+    , notElem (x', y') rem
+    , isOpponentSquare (x', y') st
+    , isInBoard (x'', y'') 
+    , not (isOccupied (x'', y'') st)
+    , ys <- jumpKingHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+    ]
+
+jumpPawn :: [Coord] -> GameState -> [Move]
+jumpPawn xs st = [[P (x, y)] ++ ys | (x, y) <- xs, ys <- jumpPawnHelper (x, y) [] (x, y) st]
+
+jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+jumpPawnHelper start rem (x, y) st =
+    [ [P (x'', y'')] ++ ys
+    | ((x', y'), (x'', y'')) <- [((x + 1, y + dir), (x + 2, y + 2 * dir)), 
+                                 ((x - 1, y + dir), (x - 2, y + 2 * dir))]
+    , notElem (x', y') rem
+    , isOpponentSquare (x', y') st
+    , isInBoard (x'', y'') 
+    , not (isOccupied (x'', y'') st)
+    , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+    ]
+  where
+    dir = if status st == RedPlayer then 1 else -1
+
+
+
+-- instructions from new tutorial notes
+
+-- return all the available legal moves based on the current game state
+
+-- FIRST THING TO DO is to check if its red player's turn or black player's turn
+-- by checking the status of the input state
+
+-- if it is the red player's turn
+-- list the possible jump moves and simple moves that each piece can do
+
+-- for a Pawn:
+-- if your pawn is located in (x, y)
+-- then the possible destination by simple moves are:
+-- (x + 1, y + 1) and (x - 1, y + 1)
+-- check if the destination is not occupied by other piece
+-- AND the destination is inside the board (x <= 7, x >= 0, y <= 7, y >= 0)
+-- 
+
+-- for a King:
+-- if your king is located in (x, y)
+-- then possible destinations by simple moves are:
+-- (x + 1, y + 1), (x + 1, y - 1), (x - 1, y + 1), (x - 1, y - 1)
+-- check if the destination is not occupied by other piece
+-- AND the destination is inside the board (x <= 7, x >= 0, y <= 7, y >= 0)
+-- You need to check an extra condition for a king's move
+-- a king's move can cause a repeated game state (which can lead to a loop)
+
+-- history = [[K(2, 1), K(1, 2)], [K (1, 0), K(0, 1)], [K(1, 2), K(2, 1)]]
+-- illegal move = [K (0, 1), K(1, 0)]
+
+-- []
+-- []
+
+-- take an initially empty list
+-- add the coordinates of the new move to the list
+-- traverse the history from left to right
+-- for each move in the history:
+   -- if the coordinates of the move already exist in the list, remove them from the list
+   -- if they don't exist in the list add them to the list
+
+-- in the end, if you end up with empty list -> the new move creates a repeated state
+-- otherwise it doesn't create a repeated state 
