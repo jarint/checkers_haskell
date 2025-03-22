@@ -1,6 +1,7 @@
 module Checkers.Moves where
 
 import Checkers.Types
+import Data.List
 
 -- Implement your code for moves function below
 --moves:: GameState -> (SMorJM [Move])
@@ -72,11 +73,23 @@ jump_over :: [Move] -> [Move]
 jump_over [] = [[]]
 jump_over z = z
 
-filterLongestMoves :: [Move] -> [Move]
-filterLongestMoves moves
-    | null moves = []
-    | otherwise = let maxLength = maximum (map length moves)
-                  in filter ((== maxLength) . length) moves
+-- filterLongestMoves :: [Move] -> [Move]
+-- filterLongestMoves moves
+--     | null moves = []
+--     | otherwise = let maxLength = maximum (map length moves)
+--                   in filter ((== maxLength) . length) moves
+
+filtersubmoves :: [Move] -> [Move]
+filtersubmoves [] = []
+filtersubmoves (x:xs)
+    | isSubmove x xs = filtersubmoves xs
+    | otherwise = x : filtersubmoves xs
+  where
+    isSubmove :: Move -> [Move] -> Bool
+    isSubmove a [] = False
+    isSubmove a (b:bs)
+        | a `isPrefixOf` b = True
+        | otherwise = isSubmove a bs
 
 isInBoard :: Coord -> Bool
 isInBoard (x, y) = x >= 0 && x < 8 && y >= 0 && y < 8
@@ -134,43 +147,92 @@ simpleKing xs st =
     , (nx, ny) <- [(x + 1, y + 1), (x - 1, y + 1), (x + 1, y - 1), (x - 1, y - 1)]
     , isInBoard (nx, ny) && not (isOccupied (nx, ny) st)]
 
+-- jump_moves :: GameState -> [Move]
+-- jump_moves st
+--     | status st == RedPlayer =
+--         let kingJumps = jumpKing (redKings st) st
+--             pawnJumps = jumpPawn (redPieces st) st
+--         in filterLongestMoves (kingJumps ++ pawnJumps)
+--     | status st == BlackPlayer =
+--         let kingJumps = jumpKing (blackKings st) st
+--             pawnJumps = jumpPawn (blackPieces st) st
+--         in filterLongestMoves (kingJumps ++ pawnJumps)
+--     | otherwise = []
+
 jump_moves :: GameState -> [Move]
 jump_moves st
     | status st == RedPlayer =
         let kingJumps = jumpKing (redKings st) st
             pawnJumps = jumpPawn (redPieces st) st
-        in filterLongestMoves (kingJumps ++ pawnJumps)
+        in filtersubmoves (reverse (filtersubmoves (reverse (kingJumps ++ pawnJumps))))
     | status st == BlackPlayer =
         let kingJumps = jumpKing (blackKings st) st
             pawnJumps = jumpPawn (blackPieces st) st
-        in filterLongestMoves (kingJumps ++ pawnJumps)
+        in filtersubmoves (reverse (filtersubmoves (reverse (kingJumps ++ pawnJumps))))
     | otherwise = []
+
 
 jumpKing :: [Coord] -> GameState -> [Move]
 jumpKing xs st = [[K (x, y)] ++ ys | (x, y) <- xs, ys <- jumpKingHelper (x, y) [] (x, y) st]
 
+-- jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+-- jumpKingHelper start rem (x, y) st =
+--     [ [K (x'', y'')] ++ ys
+--     | ((x', y'), (x'', y'')) <- [((x + 1, y + 1), (x + 2, y + 2)), 
+--                                  ((x - 1, y + 1), (x - 2, y + 2)), 
+--                                  ((x + 1, y - 1), (x + 2, y - 2)), 
+--                                  ((x - 1, y - 1), (x - 2, y - 2))]
+--     , notElem (x', y') rem
+--     , isOpponentSquare (x', y') st
+--     , isInBoard (x'', y'') 
+--     , not (isOccupied (x'', y'') st)
+--     , ys <- jumpKingHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+--     ]
+
 jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
-jumpKingHelper start rem (x, y) st =
-    [ [K (x'', y'')] ++ ys
-    | ((x', y'), (x'', y'')) <- [((x + 1, y + 1), (x + 2, y + 2)), 
-                                 ((x - 1, y + 1), (x - 2, y + 2)), 
-                                 ((x + 1, y - 1), (x + 2, y - 2)), 
-                                 ((x - 1, y - 1), (x - 2, y - 2))]
-    , notElem (x', y') rem
-    , isOpponentSquare (x', y') st
-    , isInBoard (x'', y'') 
-    , not (isOccupied (x'', y'') st)
-    , ys <- jumpKingHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
-    ]
+jumpKingHelper start visited (x, y) st =
+    let nextJumps = 
+            [ (endCoord, mid)
+            | (dx, dy) <- [ (1,1), (-1,1), (1,-1), (-1,-1) ]
+            , let mid = (x + dx, y + dy)
+            , let endCoord = (x + 2 * dx, y + 2 * dy)
+            , isInBoard endCoord
+            , not (isOccupied endCoord st)
+            , isOpponentSquare mid st
+            , mid `notElem` visited
+            ]
+    in case nextJumps of
+        [] -> [[K (x, y)]]
+        jumps -> 
+            concat [ [K (x, y) : path] 
+                   | (endCoord, mid) <- nextJumps
+                   , path <- jumpKingHelper start (mid : visited) endCoord st
+                   ]
+
 
 jumpPawn :: [Coord] -> GameState -> [Move]
 jumpPawn xs st = [[P (x, y)] ++ ys | (x, y) <- xs, ys <- jumpPawnHelper (x, y) [] (x, y) st]
 
+--jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+--jumpPawnHelper start rem (x, y) st =
+--    [ [P (x'', y'')] ++ ys
+--    | ((x', y'), (x'', y'')) <- [((x + 1, y + dir), (x + 2, y + 2 * dir)), 
+--                                 ((x - 1, y + dir), (x - 2, y + 2 * dir))]
+--    , notElem (x', y') rem
+--    , isOpponentSquare (x', y') st
+--    , isInBoard (x'', y'') 
+--    , not (isOccupied (x'', y'') st)
+--    , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+--    ]
+--  where
+--    dir = if status st == RedPlayer then 1 else -1
+
+
+
 jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
 jumpPawnHelper start rem (x, y) st =
     [ [P (x'', y'')] ++ ys
-    | ((x', y'), (x'', y'')) <- [((x + 1, y + dir), (x + 2, y + 2 * dir)), 
-                                 ((x - 1, y + dir), (x - 2, y + 2 * dir))]
+    | ((x', y'), (x'', y'')) <- directions
     , notElem (x', y') rem
     , isOpponentSquare (x', y') st
     , isInBoard (x'', y'') 
@@ -178,8 +240,11 @@ jumpPawnHelper start rem (x, y) st =
     , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
     ]
   where
-    dir = if status st == RedPlayer then 1 else -1
-
+    directions = [ ((x + 1, y + 1), (x + 2, y + 2))
+                 , ((x - 1, y + 1), (x - 2, y + 2))
+                 , ((x + 1, y - 1), (x + 2, y - 2))
+                 , ((x - 1, y - 1), (x - 2, y - 2))
+                 ]
 
 
 -- instructions from new tutorial notes
