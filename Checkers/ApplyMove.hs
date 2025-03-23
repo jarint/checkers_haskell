@@ -48,133 +48,140 @@ import Checkers.Types
     -- 4. add the move to the history of the current state
 
 -- helper functions
+unpack_coord :: PorK Coord -> Coord
+unpack_coord (P c) = c
+unpack_coord (K c) = c
 
-remove :: Eq a => a -> [a] -> [a]
-remove x = filter (/= x)
+current_RedPlayer :: GameState -> Bool
+current_RedPlayer st = status st == RedPlayer
+current_BlackPlayer :: GameState -> Bool
+current_BlackPlayer st = status st == BlackPlayer
 
-replace :: Eq a => a -> a -> [a] -> [a]
-replace old new = map (\p -> if p == old then new else p)
+remove :: PorK Coord -> PieceState -> PieceState
+remove piece = filter (/= unpack_coord piece)
 
-jumped :: Coord -> Coord -> Coord
-jumped (x1, y1) (x2, y2) = ((x1 + x2) `div` 2, (y1 + y2) `div` 2)
+replace :: PorK Coord -> PorK Coord -> PieceState -> PieceState
+replace from to = (:) (unpack_coord to) . filter (/= unpack_coord from)
 
--- history tracking
+insertCoord :: PorK Coord -> PieceState -> PieceState
+insertCoord piece = (:) (unpack_coord piece)
 
-updateGameHistory :: GameState -> Move -> GameState
-updateGameHistory st mv
-    | isKingMove mv = st { history = mv : history st }
-    | otherwise = st
+capturedSquare :: PorK Coord -> PorK Coord -> Coord
+capturedSquare c1 c2 = (startX + stepX, startY + stepY)
   where
-    isKingMove ((K _):_) = True
-    isKingMove _ = False
+    (startX, startY) = unpack_coord c1
+    (endX, endY)     = unpack_coord c2
+    stepX            = signum (endX - startX)
+    stepY            = signum (endY - startY)
 
-checkForRepetition :: GameState -> Bool
-checkForRepetition st =
-    let pastMoves = history st
-        moveTracker = foldl updateTrackingList [] pastMoves
-    in null moveTracker
 
-updateTrackingList :: [Coord] -> Move -> [Coord]
-updateTrackingList acc move =
-    foldl (\lst coord -> if coord `elem` lst then remove coord lst else coord : lst) acc (extractKingCoords move)
+updatePieceset :: (GameState -> PieceState) -> (GameState -> PieceState -> GameState) -> (PieceState -> PieceState) -> GameState -> GameState
+updatePieceset getter setter op st = setter st (op (getter st))
+updateRedKings    = updatePieceset redKings   (\st ps -> st { redKings   = ps })
+updateBlackKings  = updatePieceset blackKings (\st ps -> st { blackKings = ps })
+updateRedPieces   = updatePieceset redPieces  (\st ps -> st { redPieces  = ps })
+updateBlackPieces = updatePieceset blackPieces(\st ps -> st { blackPieces= ps })
 
-extractKingCoords :: Move -> [Coord]
-extractKingCoords = foldr (\(K c) acc -> c : acc) []
+switchPlayer :: GameState -> GameState
+switchPlayer st = st { status = if current_RedPlayer st then BlackPlayer else RedPlayer }
+
+deleteMessage :: GameState -> GameState
+deleteMessage st = st { message = "" }
+
+isPawn :: PorK Coord -> Bool
+isPawn piece = case piece of
+    P _ -> True
+    _   -> False
+
+isKing :: PorK Coord -> Bool
+isKing piece = case piece of
+    K _ -> True
+    _   -> False
+
+
+appendHistory :: Move -> GameState -> GameState
+appendHistory m st = st { history = m : history st }
+
 
 -- main functions
-
 apply_move :: Move -> GameState -> GameState
-apply_move mv st
-    | null validMoves = st { status = GameOver, message = "!!GAME OVER!!" }
-    | not (mv `elem` validMoves) = handleIllegalMove st
-    | otherwise =
-        let newState = applyValidMove mv st
-        in if checkForRepetition newState
-            then newState { status = GameOver, message = "!!REPEATED STATE - GAME OVER!!" }
-            else newState
+apply_move mv st = case _lookup mv (moves st) of
+    EndM -> st { message = "Game Over!", status = GameOver }
+    JM (start : (next : rest)) -> deleteMessage $ make_jump_move (start : (next : rest)) st
+    SM [start, end] -> deleteMessage $ make_simple_move [start, end] st
+    _ -> st { message = illegalMoveMessage st }
+
+
+_lookup :: Move -> SMorJM [Move] -> SMorJM Move
+_lookup move moveset = case moveset of
+    SM moves -> maybe (SM []) SM (search move moves)
+    JM moves -> maybe (JM []) JM (search move moves)
+    EndM -> EndM
   where
-    validMoves = case moves st of
-        JM jumpMoves -> jumpMoves
-        SM simpleMoves -> simpleMoves
-        EndM -> []
+    search :: Eq a => a -> [a] -> Maybe a
+    search _ [] = Nothing
+    search x (y:ys)
+        | x == y    = Just y
+        | otherwise = search x ys
 
-handleIllegalMove :: GameState -> GameState
-handleIllegalMove st =
-    let validSimpleMoves = case moves st of
-            SM simpleMoves -> simpleMoves
-            _ -> []
-        msg = if null validSimpleMoves
-              then "Illegal move!"
-              else "Illegal move! There are simple moves: " ++ show validSimpleMoves
-    in st { message = msg }
 
-applyValidMove :: Move -> GameState -> GameState
-applyValidMove mv st
-    | isJumpMove mv = applyJumpMove mv updatedState
-    | otherwise = applySimpleMove mv updatedState
+illegalMoveMessage :: GameState -> String
+illegalMoveMessage st =
+    case moves st of
+        JM jumps -> "Illegal move! There are jump moves:  " ++ show jumps
+        SM simpleMoves -> "Illegal move! There are simple moves:  " ++ show simpleMoves
+
+
+make_simple_move :: Move -> GameState -> GameState
+make_simple_move [K (x, y), end] st = deleteMessage $ switchPlayer $ appendHistory [K (x, y), end] $ processKings st
   where
-    updatedState = updateGameHistory st mv
-    isJumpMove (_:_:_) = True
-    isJumpMove _ = False
+    processKings | current_RedPlayer st   = updateRedKings (replace (K (x, y)) end)
+                | current_BlackPlayer st = updateBlackKings (replace (K (x, y)) end)
 
-applySimpleMove :: Move -> GameState -> GameState
-applySimpleMove [start, end] st =
-    case (start, end) of
-        (P s, P e) | status st == RedPlayer && s `elem` redPieces st ->
-            st { redPieces = replace s e (redPieces st)
-               , status = BlackPlayer
-               , message = "Black Player's turn"
-               }
-        (P s, P e) | status st == BlackPlayer && s `elem` blackPieces st ->
-            st { blackPieces = replace s e (blackPieces st)
-               , status = RedPlayer
-               , message = "Red Player's turn"
-               }
-        (K s, K e) | status st == RedPlayer && s `elem` redKings st ->
-            st { redKings = replace s e (redKings st)
-               , status = BlackPlayer
-               , message = "Black Player's turn"
-               }
-        (K s, K e) | status st == BlackPlayer && s `elem` blackKings st ->
-            st { blackKings = replace s e (blackKings st)
-               , status = RedPlayer
-               , message = "Red Player's turn"
-               }
-        _ -> handleIllegalMove st
+make_simple_move [P (x, y), end] st = deleteMessage $ switchPlayer $ appendHistory [P (x, y), end] $ processPieces st
+  where
+    processPieces =
+        if current_RedPlayer st && isKing end
+            then updateRedKings (insertCoord end) >>> updateRedPieces (remove (P (x, y)))
+        else if current_BlackPlayer st && isKing end
+            then updateBlackKings (insertCoord end) >>> updateBlackPieces (remove (P (x, y)))
+        else if current_RedPlayer st
+            then updateRedPieces (replace (P (x, y)) end)
+        else
+            updateBlackPieces (replace (P (x, y)) end)
+      where
+        (>>>) = (.)
 
-applyJumpMove :: Move -> GameState -> GameState
-applyJumpMove (start:next:rest) st =
-    case (start, next) of
-        (P s, P n) | status st == RedPlayer && s `elem` redPieces st ->
-            applyJumpMove (next:rest) (capturePiece st s n RedPlayer)
-        (P s, P n) | status st == BlackPlayer && s `elem` blackPieces st ->
-            applyJumpMove (next:rest) (capturePiece st s n BlackPlayer)
-        (K s, K n) | status st == RedPlayer && s `elem` redKings st ->
-            applyJumpMove (next:rest) (capturePiece st s n RedPlayer)
-        (K s, K n) | status st == BlackPlayer && s `elem` blackKings st ->
-            applyJumpMove (next:rest) (capturePiece st s n BlackPlayer)
-        _ -> handleIllegalMove st
-applyJumpMove [P (x, y)] st = promoteIfAvailable st (x, y)
-applyJumpMove [K (x, y)] st = promoteIfAvailable st (x, y)
 
-capturePiece :: GameState -> Coord -> Coord -> Status -> GameState
-capturePiece st start end player =
-    let mid = jumped start end
-        newState = case player of
-            RedPlayer -> st { redPieces = replace start end (redPieces st)
-                            , blackPieces = remove mid (blackPieces st)
-                            , blackKings = remove mid (blackKings st)
-                            }
-            BlackPlayer -> st { blackPieces = replace start end (blackPieces st)
-                              , redPieces = remove mid (redPieces st)
-                              , redKings = remove mid (redKings st)
-                              }
-    in promoteIfAvailable newState end
 
-promoteIfAvailable :: GameState -> Coord -> GameState
-promoteIfAvailable st (x, y)
-    | y == 0 && (x, y) `elem` redPieces st =
-        st { redPieces = remove (x, y) (redPieces st), redKings = (x, y) : redKings st }
-    | y == 7 && (x, y) `elem` blackPieces st =
-        st { blackPieces = remove (x, y) (blackPieces st), blackKings = (x, y) : blackKings st }
-    | otherwise = st
+make_jump_move :: Move -> GameState -> GameState
+make_jump_move mv st = update mv (appendHistory mv st)
+  where
+    update (start : landing : rest) st'
+        | null rest = switchPlayer $ applyJump st'
+        | otherwise = update (landing : rest) (applyJump st')
+      where
+        applyJump = deleteMessage . processKings . updateBoard . removeJumped
+
+        processKings = case (status st, isPawn start, isKing landing) of
+            (RedPlayer, True, True) ->
+                updateRedKings (insertCoord landing) . updateRedPieces (remove (P (unpack_coord start)))
+            (BlackPlayer, True, True) ->
+                updateBlackKings (insertCoord landing) . updateBlackPieces (remove (P (unpack_coord start)))
+            _ -> id
+
+        removeJumped = case status st of
+            RedPlayer ->
+                updateBlackKings (remove (P jumpedCoord)) . updateBlackPieces (remove (P jumpedCoord))
+            BlackPlayer ->
+                updateRedKings (remove (P jumpedCoord)) . updateRedPieces (remove (P jumpedCoord))
+            _ -> id
+
+        jumpedCoord = capturedSquare start landing
+
+        updateBoard = case (status st, landing, start) of
+            (RedPlayer, l, s) | isPawn l  -> updateRedPieces (replace s l)
+            (BlackPlayer, l, s) | isPawn l -> updateBlackPieces (replace s l)
+            (RedPlayer, _, s) | isKing s  -> updateRedKings (replace s landing)
+            (BlackPlayer, _, s) | isKing s -> updateBlackKings (replace s landing)
+            _ -> id
