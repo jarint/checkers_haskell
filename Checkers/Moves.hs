@@ -112,20 +112,20 @@ updateMoveHistory (x:xs)
 
 detectRepeatedState :: Move -> [Move] -> Bool
 detectRepeatedState mv historyMoves =
-    let updateList [] coord = [coord]
-        updateList lst coord = if coord `elem` lst then filter (/= coord) lst else coord : lst
+    let updateList lst coord = if coord `elem` lst then filter (/= coord) lst else coord : lst
         finalList = foldl (\lst move -> foldl updateList lst [coord | K coord <- move]) [coord | K coord <- mv] historyMoves
     in null finalList
 
 -- Move Generation
 moves :: GameState -> (SMorJM [Move])
 moves st
-    | not (null jumpmoves) = JM jumpmoves
-    | not (null simplemoves) = SM simplemoves
+    | not (null jumps) = JM jumps
+    | not (null simples) = SM simples
     | otherwise = EndM
   where
-    jumpmoves = jump_moves st
-    simplemoves = filter (not . (`detectRepeatedState` history st)) (simple_moves st)
+    jumps = jump_moves st
+    simples = filter (not . (`detectRepeatedState` history st)) (simple_moves st)
+
 
 simple_moves :: GameState -> [Move]
 simple_moves st
@@ -135,7 +135,7 @@ simple_moves st
 
 simplePiece :: [Coord] -> Int -> GameState -> [Move]
 simplePiece xs dir st =
-    [ [P (x, y), P (nx, ny)]
+    [ [P (x, y), if ny == 0 || ny == 7 then K (nx, ny) else P (nx, ny)]
     | (x, y) <- xs
     , (nx, ny) <- [(x + 1, y + dir), (x - 1, y + dir)]
     , isInBoard (nx, ny) && not (isOccupied (nx, ny) st)]
@@ -161,90 +161,62 @@ simpleKing xs st =
 
 jump_moves :: GameState -> [Move]
 jump_moves st
-    | status st == RedPlayer =
-        let kingJumps = jumpKing (redKings st) st
-            pawnJumps = jumpPawn (redPieces st) st
-        in filtersubmoves (reverse (filtersubmoves (reverse (kingJumps ++ pawnJumps))))
-    | status st == BlackPlayer =
-        let kingJumps = jumpKing (blackKings st) st
-            pawnJumps = jumpPawn (blackPieces st) st
-        in filtersubmoves (reverse (filtersubmoves (reverse (kingJumps ++ pawnJumps))))
+    | status st == RedPlayer = filtersubmoves (reverse (filtersubmoves (reverse (jumpKing (redKings st) st ++ jumpPawn (redPieces st) st))))
+    | status st == BlackPlayer = filtersubmoves (reverse (filtersubmoves (reverse (jumpKing (blackKings st) st ++ jumpPawn (blackPieces st) st))))
     | otherwise = []
 
 
 jumpKing :: [Coord] -> GameState -> [Move]
-jumpKing xs st = [[K (x, y)] ++ ys | (x, y) <- xs, ys <- jumpKingHelper (x, y) [] (x, y) st]
+jumpKing xs st = [ [K (x, y)] ++ path | (x, y) <- xs, path <- jumpKingHelper (x, y) [] (x, y) st]
 
--- jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
--- jumpKingHelper start rem (x, y) st =
---     [ [K (x'', y'')] ++ ys
---     | ((x', y'), (x'', y'')) <- [((x + 1, y + 1), (x + 2, y + 2)), 
---                                  ((x - 1, y + 1), (x - 2, y + 2)), 
---                                  ((x + 1, y - 1), (x + 2, y - 2)), 
---                                  ((x - 1, y - 1), (x - 2, y - 2))]
---     , notElem (x', y') rem
---     , isOpponentSquare (x', y') st
---     , isInBoard (x'', y'') 
---     , not (isOccupied (x'', y'') st)
---     , ys <- jumpKingHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
---     ]
-
-jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
-jumpKingHelper start visited (x, y) st =
-    let nextJumps = 
-            [ (endCoord, mid)
-            | (dx, dy) <- [ (1,1), (-1,1), (1,-1), (-1,-1) ]
-            , let mid = (x + dx, y + dy)
-            , let endCoord = (x + 2 * dx, y + 2 * dy)
-            , isInBoard endCoord
-            , not (isOccupied endCoord st)
-            , isOpponentSquare mid st
-            , mid `notElem` visited
-            ]
-    in case nextJumps of
-        [] -> [[K (x, y)]]
-        jumps -> 
-            concat [ [K (x, y) : path] 
-                   | (endCoord, mid) <- nextJumps
-                   , path <- jumpKingHelper start (mid : visited) endCoord st
-                   ]
-
-
-jumpPawn :: [Coord] -> GameState -> [Move]
-jumpPawn xs st = [[P (x, y)] ++ ys | (x, y) <- xs, ys <- jumpPawnHelper (x, y) [] (x, y) st]
-
---jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
---jumpPawnHelper start rem (x, y) st =
---    [ [P (x'', y'')] ++ ys
---    | ((x', y'), (x'', y'')) <- [((x + 1, y + dir), (x + 2, y + 2 * dir)), 
---                                 ((x - 1, y + dir), (x - 2, y + 2 * dir))]
+--jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+--jumpKingHelper start rem (x, y) st =
+--    [ [K (x'', y'')] ++ ys
+--    | ((x', y'), (x'', y'')) <- [((x + 1, y + 1), (x + 2, y + 2)), 
+--                                 ((x - 1, y + 1), (x - 2, y + 2)), 
+--                                 ((x + 1, y - 1), (x + 2, y - 2)), 
+--                                 ((x - 1, y - 1), (x - 2, y - 2))]
 --    , notElem (x', y') rem
 --    , isOpponentSquare (x', y') st
 --    , isInBoard (x'', y'') 
 --    , not (isOccupied (x'', y'') st)
---    , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+--    , ys <- jumpKingHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
 --    ]
---  where
---    dir = if status st == RedPlayer then 1 else -1
 
+jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+jumpKingHelper start visited (x, y) st =
+    [ [K (ex, ey)] ++ rest
+    | ((cx, cy), (ex, ey)) <- [((x+1, y+1), (x+2, y+2)), ((x-1, y+1), (x-2, y+2)), ((x+1, y-1), (x+2, y-2)), ((x-1, y-1), (x-2, y-2))]
+    , not ((cx, cy) `elem` visited)
+    , isOpponentSquare (cx, cy) st
+    , (start == (ex, ey)) || (isInBoard (ex, ey) && not (isOccupied (ex, ey) st))
+    , rest <- jump_over (jumpKingHelper start ((cx, cy) : visited) (ex, ey) st)]
 
+jumpPawn :: [Coord] -> GameState -> [Move]
+jumpPawn xs st = [ [P (x, y)] ++ path | (x, y) <- xs, path <- jumpPawnHelper (x, y) [] (x, y) st]
+
+-- jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
+-- jumpPawnHelper start rem (x, y) st =
+--     [ [P (x'', y'')] ++ ys
+--     | ((x', y'), (x'', y'')) <- [((x + 1, y + dir), (x + 2, y + 2 * dir)), 
+--                                  ((x - 1, y + dir), (x - 2, y + 2 * dir))]
+--     , notElem (x', y') rem
+--     , isOpponentSquare (x', y') st
+--     , isInBoard (x'', y'') 
+--     , not (isOccupied (x'', y'') st)
+--     , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
+--     ]
+--   where
+--     dir = if status st == RedPlayer then 1 else -1
 
 jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
-jumpPawnHelper start rem (x, y) st =
-    [ [P (x'', y'')] ++ ys
-    | ((x', y'), (x'', y'')) <- directions
-    , notElem (x', y') rem
-    , isOpponentSquare (x', y') st
-    , isInBoard (x'', y'') 
-    , not (isOccupied (x'', y'') st)
-    , ys <- jumpPawnHelper start ((x', y') : rem) (x'', y'') st ++ [[]]
-    ]
-  where
-    directions = [ ((x + 1, y + 1), (x + 2, y + 2))
-                 , ((x - 1, y + 1), (x - 2, y + 2))
-                 , ((x + 1, y - 1), (x + 2, y - 2))
-                 , ((x - 1, y - 1), (x - 2, y - 2))
-                 ]
+jumpPawnHelper start visited (x, y) st =
+    [ (if ny == 0 || ny == 7 then K (ex, ny) else P (ex, ny)) : rest
+    | ((cx, cy), (ex, ny)) <- if status st == RedPlayer then [((x+1, y+1), (x+2, y+2)), ((x-1, y+1), (x-2, y+2))] else [((x+1, y-1), (x+2, y-2)), ((x-1, y-1), (x-2, y-2))]
+    , not ((cx, cy) `elem` visited)
+    , isOpponentSquare (cx, cy) st
+    , (start == (ex, ny)) || (isInBoard (ex, ny) && not (isOccupied (ex, ny) st))
+    , rest <- jump_over (if ny == 0 || ny == 7 then jumpKingHelper start ((cx, cy):visited) (ex, ny) st else jumpPawnHelper start ((cx, cy):visited) (ex, ny) st)]
 
 
 -- instructions from new tutorial notes
