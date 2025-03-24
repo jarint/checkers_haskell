@@ -4,150 +4,51 @@ import Checkers.Types
 import Data.List
 
 
-
--- instructions from new tutorial notes
-
--- return all the available legal moves based on the current game state
-
--- FIRST THING TO DO is to check if its red player's turn or black player's turn
--- by checking the status of the input state
-
--- if it is the red player's turn
--- list the possible jump moves and simple moves that each piece can do
-
--- for a Pawn:
--- if your pawn is located in (x, y)
--- then the possible destination by simple moves are:
--- (x + 1, y + 1) and (x - 1, y + 1)
--- check if the destination is not occupied by other piece
--- AND the destination is inside the board (x <= 7, x >= 0, y <= 7, y >= 0)
--- 
-
--- for a King:
--- if your king is located in (x, y)
--- then possible destinations by simple moves are:
--- (x + 1, y + 1), (x + 1, y - 1), (x - 1, y + 1), (x - 1, y - 1)
--- check if the destination is not occupied by other piece
--- AND the destination is inside the board (x <= 7, x >= 0, y <= 7, y >= 0)
--- You need to check an extra condition for a king's move
--- a king's move can cause a repeated game state (which can lead to a loop)
-
--- history = [[K(2, 1), K(1, 2)], [K (1, 0), K(0, 1)], [K(1, 2), K(2, 1)]]
--- illegal move = [K (0, 1), K(1, 0)]
-
--- []
--- []
-
--- take an initially empty list
--- add the coordinates of the new move to the list
--- traverse the history from left to right
--- for each move in the history:
-   -- if the coordinates of the move already exist in the list, remove them from the list
-   -- if they don't exist in the list add them to the list
-
--- in the end, if you end up with empty list -> the new move creates a repeated state
--- otherwise it doesn't create a repeated state 
-
-
--- Implement your code for moves function below
---moves:: GameState -> (SMorJM [Move])
---moves game = EndM
-
-
--- Notes from T02 with Melika
-
--- returns all available valid moves based on the current state of the game
--- list all the simple and jump moves available for pawns and kings
-
--- First: check the status of the game state to see if 
-    -- it is red players turn or black players turn
-    -- example: it is red players turn
-
--- Second: Check the simple moves available for a red pawn
--- If the red pawn is in (x, y):
-    -- (x + 1, y + 1), (x - 1, y + 1)
-    -- iff they are not occupied and are not outside of the board
-
-    -- isOccupied :: Coord -> [Coord] -> Bool
-    -- checks if the input coordinate is occupied or not
-
-    -- isInBoard :: Coord -> Bool
-    -- x >= 0, y <= 7, y >= 0, y <= 7
-
--- Third: Look at the jump moves available for a pawn
-    -- (x + 2, y + 2), (x - 2, y + 2)
-
--- Fourth: Simple moves available for a red King in (x, y)
-    -- (x + 1, y + 1), (x + 1, y - 1), (x - 1, y + 1), (x - 1, y - 1)
-    -- iff they are not occupied
-    -- iff they are inside the board
-    -- a king's move can cause a repeated state (which can lead to a loop in the game)
-    -- so you have an extra condition which is to check if a move creates a repeated state
-    -- in the game or not.
-
-
--- HANDLING REPEATED STATES
-
--- Suppose some moveseet [K (xx, yy)] --- -- - -- - repeated moveset that causes a repeated state
--- [K(0,1) K(1, 0)] ends up being illegal because it repeats a state
-
--- 1. []
--- 2. [K (0,1), K (1,0)]
--- 3. [K (0,1), K (1,0), K (2,1)]
--- 4. [K (0,1), K (1,0), K (2,1), K(1,2)]
--- 5. [K (0,1), K (2,1), K(1,2)]
--- 6. [K (2,1), K(1,2)]
--- 7. [K (2,1)]
--- 8. []
-
-
--- take a list, which is initially empty
--- list = []
--- add the new move to that list
--- traverse the history from left to right
--- for each move in the history:
-    -- if one of the coordinates of the move is currently in the list,
-        -- remove it from the list
-    -- if not in the list
-        -- add it to the list
--- if you end up with an empty list, then it means that you have a repeated state
-    -- and the move should be illegal
---otherwise the move is legal
-
-
-
-
-
 -- Utilities
+
+-- direction: returns movement direction depending on the current player
+-- Red pieces move "up" the board (-1), black pieces move "down" the board (+1)
 direction :: GameState -> Int
 direction g = if status g == RedPlayer then -1 else 1
 
+-- jumpOver: ensures recursion continues for jumps
+-- returns [[]] if no moves are found, allowing backtracking
 jumpOver :: [[a]] -> [[a]]
-jumpOver [] = [[]]
-jumpOver z  = z
+jumpOver xs
+  | null xs   = [[]]
+  | otherwise = xs
 
+-- checks if a coordinate is within the board boundaries
 isInBoard :: Coord -> Bool
 isInBoard (x, y) = x >= 0 && x <= 7 && y >= 0 && y <= 7
 
+-- checks if a given coordinate is not occupied by any piece
 isFreeSquare :: Coord -> GameState -> Bool
 isFreeSquare c g = not (occupied c (redPieces g ++ redKings g ++ blackPieces g ++ blackKings g))
 
+-- checks if the given coordinate has an opponent's piece
 isOpponentSquare :: Coord -> GameState -> Bool
 isOpponentSquare c g = c `elem` (if status g == RedPlayer then blackPieces g ++ blackKings g else redPieces g ++ redKings g)
 
+-- helper function to check if a coordinate exists in a list of coordinates
 occupied :: Coord -> [Coord] -> Bool
 occupied c coords = c `elem` coords
 
+-- unwraps a PorK Coord to just a Coord
 getCoord :: PorK Coord -> Coord
 getCoord (P c) = c
 getCoord (K c) = c
 
+-- checks if a move starts with a king
 isMoveByKing :: Move -> Bool
 isMoveByKing (K _ : _) = True
 isMoveByKing _         = False
 
 
 -- Move Generation
+
+-- required to export
+-- moves: generates either jump moves or simple moves, preferring jumps if they exist
 moves :: GameState -> SMorJM [Move]
 moves st
   | not (null jumpMovesInSt)   = JM jumpMovesInSt
@@ -159,19 +60,24 @@ moves st
 
 
 -- HISTORY TRACKING
+
+-- prevents infinite cycles by checking king move repetitions
 noCycle :: Move -> [Move] -> Bool
 noCycle = detectMoveCycle []
 
+-- recursively checks if a series of king moves leads to a cycle
 detectMoveCycle :: [PorK Coord] -> [PorK Coord] -> [Move] -> Bool
 detectMoveCycle [] [] _  = False
 detectMoveCycle _  _  [] = True
 detectMoveCycle prevSet currSet (m:ms) =
   typeIsJumpMove m || not (isMoveByKing m) || detectMoveCycle currSet (updateCycleTracker m prevSet) ms
 
+-- updates cycle tracking sets for king moves
 updateCycleTracker :: Move -> [PorK Coord] -> [PorK Coord]
 updateCycleTracker [start, end] = flipPiecePosition end . flipPiecePosition start
 updateCycleTracker _ = id
 
+-- flips on or off a piece's presence in the cycle tracker list
 flipPiecePosition :: PorK Coord -> [PorK Coord] -> [PorK Coord]
 flipPiecePosition x [] = [x]
 flipPiecePosition x (y:ys)
@@ -184,6 +90,8 @@ flipPiecePosition x (y:ys)
 
 
 -- SIMPLE MOVES
+
+-- generates all simple (non-jump) moves for the current player
 simpleMoves :: GameState -> [Move]
 simpleMoves st = case status st of
   RedPlayer   -> simpleKing (redKings st) st (history st) ++ simplePiece (redPieces st) (allBlackPieces st) st
@@ -193,6 +101,12 @@ simpleMoves st = case status st of
     allBlackPieces = (++ blackPieces st) . blackKings
     allRedPieces = (++ redPieces st) . redKings
 
+-- Generates all valid simple (non-jump) moves for pawns.
+-- For each pawn:
+--   - Calculates its forward direction based on the current player (using `direction`).
+--   - Considers both possible diagonal moves forward: (x+1, y+dy) and (x-1, y+dy).
+--   - Checks that each target square is both on the board and not occupied by an opponent piece.
+--   - If a pawn reaches the last rank (y' == 0 for Red, y' == 7 for Black), it is promoted to a king.
 simplePiece :: [Coord] -> PieceState -> GameState -> [Move]
 simplePiece coords opponents st =
   [ [P (x, y), promoteIfEnd (x', y')]
@@ -204,6 +118,12 @@ simplePiece coords opponents st =
   where
     promoteIfEnd c@(_, y') = if y' == 0 || y' == 7 then K c else P c
 
+-- Generates all valid simple (non-jump) moves for kings.
+-- For each king on the board:
+--   - Considers all four diagonal moves (since kings move both forward and backward).
+--   - Checks that the target square (x', y') is on the board and unoccupied.
+--   - Uses noCycle to ensure that the move does not repeat a previous position.
+-- Each move is represented as a two-element list [start, end].
 simpleKing :: [Coord] -> GameState -> [Move] -> [Move]
 simpleKing kings st hist =
   [ [K (x, y), K (x', y')]
@@ -220,16 +140,20 @@ simpleKing kings st hist =
 
 
 -- JUMP MOVES
+
+-- determines if a move is a jump by checking displacement
 typeIsJumpMove :: Move -> Bool
 typeIsJumpMove [start, end] = abs (fst (getCoord start) - fst (getCoord end)) /= 1
 typeIsJumpMove _           = True
 
+-- generates all possible jump moves for the current player
 jumpMoves :: GameState -> [Move]
 jumpMoves st = case status st of
   RedPlayer   -> jumpKing (redKings st) st ++ jumpPawn (redPieces st) st
   BlackPlayer -> jumpKing (blackKings st) st ++ jumpPawn (blackPieces st) st
   _           -> []
 
+-- jumpKing: generates jump moves for king pieces, chaining through jumpKingHelper
 jumpKing :: [Coord] -> GameState -> [Move]
 jumpKing coords st =
   [ K (x, y) : rest
@@ -237,6 +161,17 @@ jumpKing coords st =
   , rest <- jumpKingHelper (x, y) [] (x, y) st
   ]
 
+-- Recursively finds all possible chained jump sequences for kings.
+-- Starting from the current king position (x, y), it looks for jumps in all
+-- four diagonal directions.
+-- For each direction:
+--   - (cx, cy) is the square occupied by an opponent piece being jumped over.
+--   - (x'', y'') is the landing square two steps beyond that piece.
+--   - continue jumping when:
+--       1. The opponent piece hasn't already been jumped over in this chain.
+--       2. The landing square is on the board and free, or is the starting square.
+-- After finding a valid jump, it recursively calls jumpKingHelper again to continue chaining.
+-- The recursion builds up complete sequences of jump moves for the king, with each jump step prepended.
 jumpKingHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
 jumpKingHelper start visited (x, y) st =
   [ K (x'', y'') : rest
@@ -247,6 +182,7 @@ jumpKingHelper start visited (x, y) st =
   , rest <- jumpOver (jumpKingHelper start ((cx, cy):visited) (x'', y'') st)
   ]
 
+-- generates jump moves for pawns, calling jumpPawnHelper for chains
 jumpPawn :: [Coord] -> GameState -> [Move]
 jumpPawn coords st =
   [ P (x, y) : landingMoves
@@ -254,6 +190,20 @@ jumpPawn coords st =
   , landingMoves <- jumpPawnHelper (x, y) [] (x, y) st
   ]
 
+-- Recursively finds all possible chained jump sequences for pawn pieces.
+-- The function starts from a given coordinate and explores possible jumps
+-- in both diagonal directions (left and right), skipping over opponent pieces.
+-- 'visited' keeps track of already jumped-over coordinates to avoid loops.
+-- For each valid jump:
+--   - (cx, cy) is the opponent’s piece being jumped over.
+--   - (x'', y'') is the landing square two steps beyond that opponent.
+--   - The move is only valid if the landing square is on the board and free.
+-- After performing a jump, the function either:
+--   1. Continues recursively as jumpPawnHelper if the piece is still a pawn and not on the end row.
+--   2. Switches to jumpKingHelper if the piece just reached the last rank (promotion row),
+--     meaning it became a king and can chain jumps with king move logic.
+-- The pieceType function at the end determines if the current jump should promote the pawn to a king
+-- by checking if it landed on the opponent’s back row.
 jumpPawnHelper :: Coord -> [Coord] -> Coord -> GameState -> [Move]
 jumpPawnHelper start visited (x, y) st =
   [ pieceType (x'', y'') : rest

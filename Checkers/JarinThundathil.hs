@@ -11,8 +11,9 @@ direction :: GameState -> Int
 direction g = if status g == RedPlayer then -1 else 1
 
 jumpOver :: [[a]] -> [[a]]
-jumpOver [] = [[]]
-jumpOver z  = z
+jumpOver xs
+  | null xs   = [[]]
+  | otherwise = xs
 
 isInBoard :: Coord -> Bool
 isInBoard (x, y) = x >= 0 && x <= 7 && y >= 0 && y <= 7
@@ -305,79 +306,118 @@ make_jump_move mv st = update mv (appendHistory mv st)
 
 -- AI
 
--- AI decision functions
-
--- Black AI: uses minimax with alpha-beta pruning to choose the best move for Black
+-- Black AI: chooses the best move for Black
+-- using alpha-beta pruning to search to depth 6
 black_ai :: GameState -> Move
-black_ai g = case snd (abmaxprune g (bot, top) 6 BlackPlayer) of
+black_ai g = case snd (alphaBetaMax g (bottom, top) 6 BlackPlayer) of
     Just m  -> m
     Nothing -> []
 
--- Red AI: uses minimax with alpha-beta pruning to choose the best move for Red
+-- Red AI: chooses the best move for Red
+-- using alpha-beta pruning to search to depth 6
 red_ai :: GameState -> Move
-red_ai g = case snd (abmaxprune g (bot, top) 6 RedPlayer) of
+red_ai g = case snd (alphaBetaMax g (bottom, top) 6 RedPlayer) of
     Just m  -> m
     Nothing -> []
 
-abmaxprune :: GameState -> (Float, Float) -> Int -> Status -> (Float, Maybe Move)
-abmaxprune g (alpha, beta) depth player
-    | status g == GameOver = (heuristic g player, Nothing)
-    | depth <= 0 && noMoreJumps g = (heuristic g player, Nothing)
-    | otherwise = abmaxLoop (abmoves g) (alpha, Nothing)
+-- finds the best move for the maximizing player
+-- explores moves, calls alphaBetaMin on each branch
+-- prunes when score exceeds beta
+alphaBetaMax :: GameState -> (Float, Float) -> Int -> Status -> (Float, Maybe Move)
+alphaBetaMax g (alpha, beta) depth player
+    | status g == GameOver = (move_heuristic g player, Nothing)
+    | depth <= 0 && noMoreJumps g = (move_heuristic g player, Nothing)
+    | otherwise = abmaxLoop (availableMoves g) (alpha, Nothing)
   where
     abmaxLoop [] (a, mv) = (a, mv)
     abmaxLoop (m:ms) (a, mv)
-      | score >= beta = (score, Just m) -- prune
+      | score >= beta = (score, Just m)
       | score > a     = abmaxLoop ms (score, Just m)
       | otherwise     = abmaxLoop ms (a, mv)
       where
-        score = fst (abminprune (apply_move m g) (a, beta) (depth - 1) player)
+        score = fst (alphaBetaMin (apply_move m g) (a, beta) (depth - 1) player)
 
-abminprune :: GameState -> (Float, Float) -> Int -> Status -> (Float, Maybe Move)
-abminprune g (alpha, beta) depth player
-    | status g == GameOver = (heuristic g player, Nothing)
-    | depth <= 0 && noMoreJumps g = (heuristic g player, Nothing)
-    | otherwise = abminLoop (abmoves g) (beta, Nothing)
+
+-- finds the best move for the minimizing player
+-- explores moves, calls alphaBetaMax on each branch
+-- prunes when score falls below alpha
+alphaBetaMin :: GameState -> (Float, Float) -> Int -> Status -> (Float, Maybe Move)
+alphaBetaMin g (alpha, beta) depth player
+    | status g == GameOver = (move_heuristic g player, Nothing)
+    | depth <= 0 && noMoreJumps g = (move_heuristic g player, Nothing)
+    | otherwise = abminLoop (availableMoves g) (beta, Nothing)
   where
     abminLoop [] (b, mv) = (b, mv)
     abminLoop (m:ms) (b, mv)
-      | score <= alpha = (score, Just m) -- prune
+      | score <= alpha = (score, Just m)
       | score < b      = abminLoop ms (score, Just m)
       | otherwise      = abminLoop ms (b, mv)
       where
-        score = fst (abmaxprune (apply_move m g) (alpha, b) (depth - 1) player)
+        score = fst (alphaBetaMax (apply_move m g) (alpha, b) (depth - 1) player)
 
--- Select either jump moves or simple moves (prefer jumps)
-abmoves :: GameState -> [Move]
-abmoves g = case moves g of
+-- returns either all jump moves or simple moves
+-- jump moves are preferred if available
+availableMoves :: GameState -> [Move]
+availableMoves g = case moves g of
     JM jumps -> jumps
     SM sims  -> sims
     EndM     -> []
 
--- Heuristic: simple material difference (each king worth 2, pawn worth 1)
-heuristic :: GameState -> Status -> Float
-heuristic g player = fromIntegral $ material player g - material (otherPlayer player) g
+-- evaluates the board state for the given player
+-- based on material, center control, and promotion proximity
+-- higher values are better for the player
+move_heuristic :: GameState -> Status -> Float
+move_heuristic g player = fromIntegral $
+    (material player g - material (otherPlayer player) g) * 20
+    + (centerControl player g - centerControl (otherPlayer player) g) * 10
+    + ((promotionProximity player g) - (promotionProximity (otherPlayer player) g)) * 7
 
+
+-- measures how close pawns are to becoming kings
+-- larger values mean pawns are closer to promotion
+promotionProximity :: Status -> GameState -> Int
+promotionProximity player g = (length pawns * 7) - promotionDistance player g
+  where
+    pawns = if player == BlackPlayer then blackPieces g else redPieces g
+
+
+-- calculates score from pawns and kings
+-- each king counts as double
 material :: Status -> GameState -> Int
 material BlackPlayer g = length (blackPieces g) + 2 * length (blackKings g)
 material RedPlayer g   = length (redPieces g) + 2 * length (redKings g)
 material GameOver _    = 0
 
+
+-- returns the opponent player
 otherPlayer :: Status -> Status
 otherPlayer BlackPlayer = RedPlayer
 otherPlayer RedPlayer   = BlackPlayer
 otherPlayer GameOver    = GameOver
 
--- Check if there are no jumps left
+-- checks if there are no jump moves left
 noMoreJumps :: GameState -> Bool
 noMoreJumps g = case moves g of
     JM [] -> True
     JM _  -> False
     _     -> True
 
--- Alpha-beta bounds
+-- Alpha-beta initial bounds
 top :: Float
 top = 1000000
+bottom :: Float
+bottom = -1000000
 
-bot :: Float
-bot = -1000000
+-- counts number of pieces in the center 4x4 squares
+-- this is used in the move_heuristic function for evaluation
+centerControl :: Status -> GameState -> Int
+centerControl BlackPlayer g = length [ (x,y) | (x,y) <- blackPieces g ++ blackKings g, x >= 2, x <= 5, y >= 2, y <= 5 ]
+centerControl RedPlayer g   = length [ (x,y) | (x,y) <- redPieces g ++ redKings g, x >= 2, x <= 5, y >= 2, y <= 5 ]
+centerControl GameOver _    = 0
+
+-- sum of distances from pawns to promotion row
+-- this is used in the move_heuristic function for evaluation
+promotionDistance :: Status -> GameState -> Int
+promotionDistance BlackPlayer g = sum [ (7 - y) | (_, y) <- blackPieces g ]
+promotionDistance RedPlayer g   = sum [ y | (_, y) <- redPieces g ]
+promotionDistance GameOver _    = 0
