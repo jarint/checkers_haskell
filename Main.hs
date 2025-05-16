@@ -4,9 +4,9 @@ import Checkers.Types
 --------------------------------------------------------------------------------------
 --                     Imports you will need to develop
 --------------------------------------------------------------------------------------
--- import Checkers.Moves
--- import Checkers.ApplyMove
--- import AI.ABsearch
+--import Checkers.Moves
+--import Checkers.ApplyMove
+import Checkers.JarinThundathil
 --------------------------------------------------------------------------------------
 --                     Standard library imports:
 --------------------------------------------------------------------------------------
@@ -24,9 +24,9 @@ import Text.Read
 main :: IO ()
 main = do -- the Human on Human game configuration
      hSetBuffering stdin LineBuffering
-     runGame $ GameConfig { movemaker = apply_move
-                          , blackMove = Human
-                          , redMove = Human
+     runGame $ GameConfig { movemaker = Checkers.JarinThundathil.apply_move
+                          , blackMove = AI Checkers.JarinThundathil.black_ai
+                          , redMove = AI Checkers.JarinThundathil.red_ai
                           , state = initialGameState}
 
 -- a stub for apply_move

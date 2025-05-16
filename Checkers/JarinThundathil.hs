@@ -309,14 +309,14 @@ make_jump_move mv st = update mv (appendHistory mv st)
 -- Black AI: chooses the best move for Black
 -- using alpha-beta pruning to search to depth 6
 black_ai :: GameState -> Move
-black_ai g = case snd (alphaBetaMax g (bottom, top) 6 BlackPlayer) of
+black_ai g = case snd (alphaBetaMax g (bottom, top) 4 BlackPlayer) of
     Just m  -> m
     Nothing -> []
 
 -- Red AI: chooses the best move for Red
 -- using alpha-beta pruning to search to depth 6
 red_ai :: GameState -> Move
-red_ai g = case snd (alphaBetaMax g (bottom, top) 6 RedPlayer) of
+red_ai g = case snd (alphaBetaMax g (bottom, top) 4 RedPlayer) of
     Just m  -> m
     Nothing -> []
 
